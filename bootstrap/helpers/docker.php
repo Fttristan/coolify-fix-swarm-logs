@@ -1241,6 +1241,27 @@ function validateComposeFile(string $compose, int $server_id): string|Throwable
 
 function getContainerLogs(Server $server, string $container_id, int $lines = 100): string
 {
+    // Resolve actual Swarm service name (handles timestamp suffix)
+    if ($server->isSwarm()) {
+        $prefix = $container_id;
+
+        // Query all Swarm services
+        $servicesJson = shell_exec("docker service ls --format '{{.Name}}'");
+        $services = explode("\n", trim($servicesJson));
+
+        // Find services that start with the prefix
+        $matches = array_filter($services, function ($s) use ($prefix) {
+            return strpos($s, $prefix) === 0;
+        });
+
+        // Pick the newest (highest timestamp)
+        if (!empty($matches)) {
+            sort($matches);
+            $container_id = end($matches);
+        }
+    }
+
+    // Fetch logs
     if ($server->isSwarm()) {
         $output = instant_remote_process([
             "docker service logs -n {$lines} {$container_id} 2>&1",
@@ -1251,10 +1272,9 @@ function getContainerLogs(Server $server, string $container_id, int $lines = 100
         ], $server);
     }
 
-    $output = removeAnsiColors($output);
-
-    return $output;
+    return removeAnsiColors($output);
 }
+
 function escapeEnvVariables($value)
 {
     $search = ['\\', "\r", "\t", "\x0", '"', "'"];

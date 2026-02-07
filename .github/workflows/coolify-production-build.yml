@@ -20,7 +20,7 @@ permissions:
 
 env:
   GITHUB_REGISTRY: ghcr.io
-  IMAGE_NAME: "Fttristan/coolify-fix-swarm-logs"
+  IMAGE_NAME: "fttristan/coolify-fix-swarm-logs"
 
 jobs:
   build-push:

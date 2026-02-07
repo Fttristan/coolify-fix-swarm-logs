@@ -5678,6 +5678,7 @@ All notable changes to this project will be documented in this file.
 - *(api)* Improve domains API docs
 - Update changelog
 - Update changelog
+- Update changelog
 
 ### ⚡ Performance
 

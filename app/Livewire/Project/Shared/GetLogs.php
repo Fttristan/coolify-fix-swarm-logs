@@ -131,6 +131,24 @@ class GetLogs extends Component
             $this->numberOfLines = self::MAX_LOG_LINES;
         }
         if ($this->container) {
+
+            // Resolve actual Swarm service name (handles timestamp suffix)
+            if ($this->server->isSwarm()) {
+                $prefix = $this->container;
+
+                $servicesJson = shell_exec("docker service ls --format '{{.Name}}'");
+                $services = explode("\n", trim($servicesJson));
+
+                $matches = array_filter($services, function ($s) use ($prefix) {
+                    return strpos($s, $prefix) === 0;
+                });
+
+                if (! empty($matches)) {
+                    sort($matches);
+                    $this->container = end($matches);
+                }
+            }
+
             if ($this->showTimeStamps) {
                 if ($this->server->isSwarm()) {
                     $command = "docker service logs -n {$this->numberOfLines} -t {$this->container}";
@@ -196,6 +214,23 @@ class GetLogs extends Component
     {
         if (! $this->server->isFunctional() || ! $this->container) {
             return '';
+        }
+
+        // Resolve actual Swarm service name (handles timestamp suffix)
+        if ($this->server->isSwarm()) {
+            $prefix = $this->container;
+
+            $servicesJson = shell_exec("docker service ls --format '{{.Name}}'");
+            $services = explode("\n", trim($servicesJson));
+
+            $matches = array_filter($services, function ($s) use ($prefix) {
+                return strpos($s, $prefix) === 0;
+            });
+
+            if (! empty($matches)) {
+                sort($matches);
+                $this->container = end($matches);
+            }
         }
 
         if ($this->showTimeStamps) {
@@ -270,3 +305,4 @@ class GetLogs extends Component
         return view('livewire.project.shared.get-logs');
     }
 }
+

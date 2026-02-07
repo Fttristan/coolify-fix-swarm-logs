@@ -1732,55 +1732,83 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
     }
 
     private function rolling_update()
-    {
-        try {
-            $this->checkForCancellation();
-            if ($this->server->isSwarm()) {
-                $this->application_deployment_queue->addLogEntry('Rolling update started.');
-                $this->execute_remote_command(
-                    [
-                        executeInDocker($this->deployment_uuid, "docker stack deploy --detach=true --with-registry-auth -c {$this->workdir}{$this->docker_compose_location} {$this->application->uuid}"),
-                    ],
-                );
-                $this->application_deployment_queue->addLogEntry('Rolling update completed.');
-            } else {
-                if ($this->use_build_server) {
-                    $this->write_deployment_configurations();
-                    $this->server = $this->mainServer;
-                }
-                if (count($this->application->ports_mappings_array) > 0 || (bool) $this->application->settings->is_consistent_container_name_enabled || str($this->application->settings->custom_internal_name)->isNotEmpty() || $this->pull_request_id !== 0 || str($this->application->custom_docker_run_options)->contains('--ip') || str($this->application->custom_docker_run_options)->contains('--ip6')) {
-                    $this->application_deployment_queue->addLogEntry('----------------------------------------');
-                    if (count($this->application->ports_mappings_array) > 0) {
-                        $this->application_deployment_queue->addLogEntry('Application has ports mapped to the host system, rolling update is not supported.');
-                    }
-                    if ((bool) $this->application->settings->is_consistent_container_name_enabled) {
-                        $this->application_deployment_queue->addLogEntry('Consistent container name feature enabled, rolling update is not supported.');
-                    }
-                    if (str($this->application->settings->custom_internal_name)->isNotEmpty()) {
-                        $this->application_deployment_queue->addLogEntry('Custom internal name is set, rolling update is not supported.');
-                    }
-                    if ($this->pull_request_id !== 0) {
-                        $this->application->settings->is_consistent_container_name_enabled = true;
-                        $this->application_deployment_queue->addLogEntry('Pull request deployment, rolling update is not supported.');
-                    }
-                    if (str($this->application->custom_docker_run_options)->contains('--ip') || str($this->application->custom_docker_run_options)->contains('--ip6')) {
-                        $this->application_deployment_queue->addLogEntry('Custom IP address is set, rolling update is not supported.');
-                    }
-                    $this->stop_running_container(force: true);
-                    $this->start_by_compose_file();
-                } else {
-                    $this->application_deployment_queue->addLogEntry('----------------------------------------');
-                    $this->application_deployment_queue->addLogEntry('Rolling update started.');
-                    $this->start_by_compose_file();
-                    $this->health_check();
-                    $this->stop_running_container();
-                    $this->application_deployment_queue->addLogEntry('Rolling update completed.');
-                }
+{
+    try {
+        $this->checkForCancellation();
+        if ($this->server->isSwarm()) {
+            $this->application_deployment_queue->addLogEntry('Rolling update started.');
+            $this->execute_remote_command(
+                [
+                    executeInDocker($this->deployment_uuid, "docker stack deploy --detach=true --with-registry-auth -c {$this->workdir}{$this->docker_compose_location} {$this->application->uuid}"),
+                ],
+            );
+
+            // ---------------------------------------------------------
+            // PATCH: Resolve and store the correct Swarm service name
+            // ---------------------------------------------------------
+            $prefix = $this->application->uuid . '_';
+
+            $servicesJson = instant_remote_process([
+                "docker service ls --format '{{.Name}}'"
+            ], $this->server);
+
+            $services = explode("\n", trim($servicesJson));
+
+            $matches = array_filter($services, function ($s) use ($prefix) {
+                return strpos($s, $prefix) === 0;
+            });
+
+            if (!empty($matches)) {
+                sort($matches);
+                $realServiceName = end($matches);
+
+                // Save correct container name
+                $this->application->update([
+                    'container' => $realServiceName
+                ]);
             }
-        } catch (Exception $e) {
-            throw new DeploymentException('Rolling update failed ('.get_class($e).'): '.$e->getMessage(), $e->getCode(), $e);
+            // ---------------------------------------------------------
+
+            $this->application_deployment_queue->addLogEntry('Rolling update completed.');
+        } else {
+            if ($this->use_build_server) {
+                $this->write_deployment_configurations();
+                $this->server = $this->mainServer;
+            }
+            if (count($this->application->ports_mappings_array) > 0 || (bool) $this->application->settings->is_consistent_container_name_enabled || str($this->application->settings->custom_internal_name)->isNotEmpty() || $this->pull_request_id !== 0 || str($this->application->custom_docker_run_options)->contains('--ip') || str($this->application->custom_docker_run_options)->contains('--ip6')) {
+                $this->application_deployment_queue->addLogEntry('----------------------------------------');
+                if (count($this->application->ports_mappings_array) > 0) {
+                    $this->application_deployment_queue->addLogEntry('Application has ports mapped to the host system, rolling update is not supported.');
+                }
+                if ((bool) $this->application->settings->is_consistent_container_name_enabled) {
+                    $this->application_deployment_queue->addLogEntry('Consistent container name feature enabled, rolling update is not supported.');
+                }
+                if (str($this->application->settings->custom_internal_name)->isNotEmpty()) {
+                    $this->application_deployment_queue->addLogEntry('Custom internal name is set, rolling update is not supported.');
+                }
+                if ($this->pull_request_id !== 0) {
+                    $this->application->settings->is_consistent_container_name_enabled = true;
+                    $this->application_deployment_queue->addLogEntry('Pull request deployment, rolling update is not supported.');
+                }
+                if (str($this->application->custom_docker_run_options)->contains('--ip') || str($this->application->custom_docker_run_options)->contains('--ip6')) {
+                    $this->application_deployment_queue->addLogEntry('Custom IP address is set, rolling update is not supported.');
+                }
+                $this->stop_running_container(force: true);
+                $this->start_by_compose_file();
+            } else {
+                $this->application_deployment_queue->addLogEntry('----------------------------------------');
+                $this->application_deployment_queue->addLogEntry('Rolling update started.');
+                $this->start_by_compose_file();
+                $this->health_check();
+                $this->stop_running_container();
+                $this->application_deployment_queue->addLogEntry('Rolling update completed.');
+            }
         }
+    } catch (Exception $e) {
+        throw new DeploymentException('Rolling update failed ('.get_class($e).'): '.$e->getMessage(), $e->getCode(), $e);
     }
+}
+
 
     private function health_check()
     {

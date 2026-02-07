@@ -5676,6 +5676,7 @@ All notable changes to this project will be documented in this file.
 - Add transcript lol link and logo to readme (#7331)
 - *(api)* Change domains to urls
 - *(api)* Improve domains API docs
+- Update changelog
 
 ### ⚡ Performance
 
